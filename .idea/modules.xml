@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/bds_data_science.iml" filepath="$PROJECT_DIR$/.idea/bds_data_science.iml" />
+      <module fileurl="file://D://workspace/../../WorkSpace/Git/bds_data_science/.idea/bds_data_science.iml" filepath="D://workspace/../../WorkSpace/Git/bds_data_science/.idea/bds_data_science.iml" />
     </modules>
   </component>
 </project>

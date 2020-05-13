@@ -6,7 +6,7 @@ from bds_data_science.lib.common.df_ops import df_split
 
 
 class SQLServerUnit:
-    def __init__(self, host, port, username, password, db='default', charset='utf8'):
+    def __init__(self, host, port, username, password, db, charset='utf8'):
         host_port = host + ':' + port
         self.conn = pymssql.connect(
             host=host_port, user=username, password=password, database=db, charset=charset)
@@ -17,10 +17,12 @@ class SQLServerUnit:
             db=db, charset=charset),
             echo=True)
 
-    def close_conn(self):
+    def release(self):
         try:
             if self.conn:
                 self.conn.close()
+            if self.engine:
+                self.engine.dispose()
         except pymssql.Error as e:
             print('Error: %s', e)
 
@@ -29,8 +31,7 @@ class SQLServerUnit:
         :param query:  hive query
         :return:
         """
-        cursor = self.conn.cursor()
-        cursor.execute(query)
+        self.engine.execute(query)
 
     def execute(self, query):
         """
@@ -46,6 +47,7 @@ class SQLServerUnit:
 
     def drop_tab(self, tab_name: str):
         self.execute("drop table if exists %s" % tab_name)
+        print('TABLE DROPPED!')
 
     def get_df_from_db(self, query):
         """
@@ -63,78 +65,59 @@ class SQLServerUnit:
         ret_df = pd.DataFrame([list(i) for i in data], columns=col_name)
         return ret_df
 
-    def _get_df_from_db(self, tab_name: str, cols: list or str = "*",
-                        condition: str or None = None, limit: int or None = None):
-        """
-        Load df from db
-        :param tab_name: table name
-        :param cols: list of columns, if pass "*" will select all columns
-        :param condition: selection condition
-        :param limit: limit number
-        :return:
-        """
-        cols = ', '.join(cols) if cols != '*' else cols
-        sql_query = """SELECT {cols} FROM {tab} """.format(cols=cols, tab=tab_name)
-        if condition:
-            sql_query += """WHERE {cond} """.format(cond=condition)
-        if limit:
-            sql_query = """SELECT TOP {limit} {cols} FROM {tab} """.format(limit=limit,cols=cols,tab=tab_name)
-        ret_df = pd.read_sql(sql_query, self.engine)
-        return ret_df
-
-    def df2db(self, df: pd.DataFrame, tab_name):
+    def df2db(self, df: pd.DataFrame, tab_name, append=False):
         """
         Upload a df to db
+        :param append:
         :param df: df to upload
         :param tab_name: table name
         :return: None
         """
+        if append:
+            df.to_sql(name=tab_name, con=self.engine, if_exists='append', index=False)
+        else:
+            self.execute("drop table if exists {table_name}".format(table_name=tab_name))
+            df.to_sql(name=tab_name, con=self.engine, if_exists='fail', index=False)
 
-        self.execute("drop table if exists {table_name}".format(table_name=tab_name))
-        df.to_sql(name=tab_name, con=self.engine, if_exists='append', index=False)
-
-    def df2db_separate(self, df: pd.DataFrame, tab_name):
+    def create_table(self, tab_name: str, cols: dict):
         """
-        Upload a df to db in separate way
-        :param df:
-        :param tab_name: table name
-        :return: None
+        :param tab_name:
+        :param cols:
+        :return:
         """
-        self.execute("drop table if exists {table_name}".format(table_name=tab_name))
-        max_df_size = 50
-
-        dfs = df_split(df, batch_size=max_df_size)
-        num_piece = len(dfs)
-
-        dfs[0].to_sql(tab_name, self.engine, if_exists='append', index=False)
-        if num_piece > 1:
-            for pdf in dfs[1:]:
-                self.execute("DROP TABLE IF EXISTS {tt}".format(tt=tab_name + '_tmp'))
-                pdf.to_sql(tab_name + '_tmp', self.engine, if_exists='append', index=False)
-                self.execute("INSERT INTO TABLE {tn} SELECT * FROM {tt}".format(
-                    tn=tab_name, tt=tab_name + '_tmp'
-                ))
-                print(len(pdf))
-            self.execute("DROP TABLE IF EXISTS {tt}".format(tt=tab_name + '_tmp'))
+        col_type = []
+        for k, v in cols.items():
+            col_type.append(k + ' ' + v)
+        col_type = ','.join(col_type)
+        self.execute("""
+                        DROP TABLE IF EXISTS {tab_name}
+                        CREATE TABLE {tab_name} ({col_type})""".format(tab_name=tab_name, col_type=col_type))
+        print('CREATE TABLE SUCCESS!')
 
 
 def test():
     sql_unit = SQLServerUnit(host='211.152.47.73', port='1433', username='iris.bao', password='irisbaoNIAN93',
                              db='Iris')
-    sql_unit.execute(r"""
-                            drop table if exists iris.dbo.iris_test
-                            select top 100 * into iris.dbo.iris_test
-                            from iris.dbo.TradeZoneStoreList
-                            """)
-    # df = sql_unit.get_df_from_db("select top 100 * from iris.dbo.iris_test")
-    df = sql_unit._get_df_from_db(tab_name='iris.dbo.iris_test', limit=10)
+    # sql_unit.create_table(tab_name='iris.dbo.create_test', cols={'A': 'nvarchar(255)', 'B': 'int'})
+    # sql_unit.execute(r"""
+    #                     drop table if exists iris.dbo.sql_execute_test;
+    #                     create table iris.dbo.sql_execute_test
+    #                     (
+    #                     [MCDStoreID] int not null,
+    #                     [BDSStoreName] nvarchar(255) null
+    #                     );
+    #                     insert into iris.dbo.sql_execute_test
+    #                     select top 100 MCDStoreID,BDSStoreName
+    #                     from iris.dbo.TradeZoneStoreList
+    #                     """)
+    # df = sql_unit.get_df_from_db("select top 100 * from iris.dbo.sql_execute_test")
+    # print(df)
+    # sql_unit.df2db(df=df, tab_name='sql_test_df2db', append=False)
+    df = sql_unit.get_df_from_db(r"""select MCDStoreID, convert(nvarchar(255),BDSSTORENAME) AS storename 
+                                    from iris.dbo.sql_test_df2db""")
     print(df)
-    sql_unit.df2db(df=df, tab_name='sql_test')
-
-    # sql_unit.df2db_separate(df=df, tab_name='sql_test')
-    sql_unit.drop_tab(tab_name='dbo.sql_test')
-
-    sql_unit.close_conn()
+    # sql_unit.drop_tab(tab_name='iris.dbo.create_test')
+    sql_unit.release()
 
 
 if __name__ == '__main__':
