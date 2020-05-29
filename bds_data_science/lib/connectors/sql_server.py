@@ -2,7 +2,6 @@ import pymssql
 import pandas as pd
 from sqlalchemy import create_engine
 
-from bds_data_science.lib.common.df_ops import df_split
 
 
 class SQLServerUnit:
@@ -99,17 +98,17 @@ def test():
     sql_unit = SQLServerUnit(host='211.152.47.73', port='1433', username='iris.bao', password='irisbaoNIAN93',
                              db='Iris')
     # sql_unit.create_table(tab_name='iris.dbo.create_test', cols={'A': 'nvarchar(255)', 'B': 'int'})
-    # sql_unit.execute(r"""
-    #                     drop table if exists iris.dbo.sql_execute_test;
-    #                     create table iris.dbo.sql_execute_test
-    #                     (
-    #                     [MCDStoreID] int not null,
-    #                     [BDSStoreName] nvarchar(255) null
-    #                     );
-    #                     insert into iris.dbo.sql_execute_test
-    #                     select top 100 MCDStoreID,BDSStoreName
-    #                     from iris.dbo.TradeZoneStoreList
-    #                     """)
+    sql_unit.execute(r"""
+                        drop table if exists iris.dbo.sql_execute_test;
+                        create table iris.dbo.sql_execute_test
+                        (
+                        [MCDStoreID] int not null,
+                        [BDSStoreName] nvarchar(255) null
+                        );
+                        insert into iris.dbo.sql_execute_test
+                        select top 100 MCDStoreID,BDSStoreName
+                        from iris.dbo.TradeZoneStoreList
+                        """)
     # df = sql_unit.get_df_from_db("select top 100 * from iris.dbo.sql_execute_test")
     # print(df)
     # sql_unit.df2db(df=df, tab_name='sql_test_df2db', append=False)
