@@ -2,7 +2,6 @@ import pandas as pd
 
 from lib.connectors.sql_server import SQLServerUnit
 
-
 class EnviDes:
     def __init__(self, sql_unit: SQLServerUnit, brand_name: str, year_month: list, cities: list, envi_range: float):
         self.sql_unit = sql_unit
@@ -14,6 +13,12 @@ class EnviDes:
     @property
     def _default_col(self):
         return {
+            '[BurgerKing].[dbo].[BKStoreList]': {
+                'store_name': 'BDSStoreName',
+                'lat': 'StoreLat', 'lng': 'StoreLng', 'city': 'City'},
+            '[MCDDecisionSupport].[dbo].[MCDStoreList]': {
+                'store_name': 'BDSStoreName',
+                'lat': 'StoreLat', 'lng': 'StoreLng', 'city': 'City'},
             '[Yum].[dbo].[DeliveryStoreList]': {
                 'store_name': 'StoreName',
                 'lat': 'Latitude', 'lng': 'Longitude', 'city': 'City',
@@ -36,11 +41,17 @@ class EnviDes:
 
     def code_format(self, code_base: str,
                     cate_select: str, cate_select_s: str,
-                    store_list: str, store_sales: str, cmb: str):
+                    store_list: str, store_sales: str, cmb: str,
+                    store_list_brand: str):
         print(code_base)
         format_code = code_base.format(store_list=store_list, store_sales=store_sales,
+                                       store_list_brand=store_list_brand,
                                        cate_selection=cate_select,
                                        cate_selection_s=cate_select_s,
+                                       store_name_brand=self._default_col[store_list_brand]['store_name'],
+                                       lat_brand=self._default_col[store_list_brand]['lat'],
+                                       lng_brand=self._default_col[store_list_brand]['lng'],
+                                       city_brand=self._default_col[store_list_brand]['city'],
                                        store_name=self._default_col[store_list]['store_name'],
                                        brand_name=self.brand_name,
                                        brand=self._default_col[store_list]['brand'],
@@ -70,6 +81,13 @@ class EnviDes:
 
         store_list = '[Yum].[dbo].[DeliveryStoreList]'
         store_sales = '[Yum].[dbo].[ResultMonthlyStoreSales]'
+        if self.brand_name == '汉堡王':
+            store_list_brand = '[BurgerKing].[dbo].[BKStoreList]'
+        elif self.brand_name == '麦当劳':
+            store_list_brand = '[MCDDecisionSupport].[dbo].[MCDStoreList]'
+        else:
+            store_list_brand = store_list
+
         if if_avg:
             cmb = 'avg'
         else:
@@ -80,34 +98,32 @@ class EnviDes:
         sum(tttt2.envi_order_cnt) as envi_order_cnt,sum(tttt2.envi_sales) as envi_sales
         from
         (
-            select ttt1.store_name,ttt1.brand,ttt2.store_name as RestaurantName,
+            select ttt1.store_name,'{brand_name}' as brand,ttt2.store_name as RestaurantName,
             [yum].[dbo].[fnCalcDistanceKM](ttt1.lat,ttt1.lng,ttt2.lat,ttt2.lng) as distance
             from 
             (
-                select  tt1.store_name, tt1.lat, tt2.lng, tt1.brand
+                select  tt1.store_name, tt1.lat, tt2.lng
                 from (
-                    select  {store_name} as store_name,{brand} as brand,{lat} as lat,
-                    row_number() over (partition by {store_name} order by lat_cnt desc) rn
+                    select  {store_name_brand} as store_name,{lat_brand} as lat,
+                    row_number() over (partition by {store_name_brand} order by lat_cnt desc) rn
                     from
                     (
-                        select {store_name},{brand},{lat},count(0) as lat_cnt
-                        from {store_list}
-                        where {city} in ('{cities}')
-                        and {lat} is not null and {store_name} is not null and {store_name}<>''
-                        and {brand}='{brand_name}'
-                        group by {store_name},{brand},{lat}
+                        select {store_name_brand},{lat_brand},count(0) as lat_cnt
+                        from {store_list_brand}
+                        where {city_brand} in ('{cities}')
+                        and {lat_brand} is not null and {store_name_brand} is not null and {store_name_brand}<>''
+                        group by {store_name_brand},{lat_brand}
                         )t1)tt1 left outer join
                     (
-                    select  {store_name} as store_name, {lng} as lng,
-                    row_number() over (partition by {store_name} order by lng_cnt desc) rn
+                    select  {store_name_brand} as store_name, {lng_brand} as lng,
+                    row_number() over (partition by {store_name_brand} order by lng_cnt desc) rn
                     from
                     (
-                        select {store_name},{lng},count(0) as lng_cnt
-                        from {store_list}
-                        where {city} in ('{cities}')
-                        and {lng} is not null and {store_name} is not null and {store_name}<>''
-                        and {brand}='{brand_name}'
-                        group by {store_name},{lng}
+                        select {store_name_brand},{lng_brand},count(0) as lng_cnt
+                        from {store_list_brand}
+                        where {city_brand} in ('{cities}')
+                        and {lng_brand} is not null and {store_name_brand} is not null and {store_name_brand}<>''
+                        group by {store_name_brand},{lng_brand}
                         )t1)tt2 on tt1.store_name=tt2.store_name
                 where tt1.rn=1 and tt2.rn=1
             )ttt1 cross join 
@@ -152,7 +168,7 @@ class EnviDes:
             )tttt2 on tttt1.RestaurantName=tttt2.RestaurantName
         where tttt1.distance<={envi_range}  and tttt2.channel is not null
         group by store_name,channel
-        order by store_name,channel         
+        order by channel,store_name         
         """
 
         if cates == 'keybrand':
@@ -166,6 +182,7 @@ class EnviDes:
                                            cate_select_s=cate_select_s,
                                            store_list=store_list,
                                            store_sales=store_sales,
+                                           store_list_brand=store_list_brand,
                                            cmb=cmb)
             print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
@@ -177,6 +194,7 @@ class EnviDes:
                                            cate_select_s=cate_select_s,
                                            store_list=store_list,
                                            store_sales=store_sales,
+                                           store_list_brand=store_list_brand,
                                            cmb=cmb)
             print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
@@ -187,6 +205,7 @@ class EnviDes:
                                            cate_select='',
                                            store_list=store_list,
                                            cate_select_s='',
+                                           store_list_brand=store_list_brand,
                                            store_sales=store_sales, cmb=cmb)
             print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
@@ -214,7 +233,7 @@ class EnviDes:
                        store_sales=store_sales, cmb=cmb,
                        cities=self.cities, brand_name=self.brand_name, year_month=self.year_month
                        ))
-        sales_df = pd.merge(sales_df, envi_sales_df, how='left', on=['store_name', 'channel'])
+        sales_df = pd.merge(sales_df, envi_sales_df, how='outer')
         return sales_df
 
     def area_des(self, build_type: list):
@@ -226,6 +245,7 @@ if __name__ == '__main__':
                              db='MCD')
     envi = EnviDes(sql_unit=sql_unit, brand_name='汉堡王', year_month=['202004'], cities=['上海'], envi_range=3)
     df = envi.sales_des(cates='wqsr', if_avg=False)
+    # df = envi.sales_des(cates='keybrand',brands=['麦当劳', '肯德基'], if_avg=False)
     print(df)
     df.to_csv("D:/workspace/Python/sales_df.csv", index=False, encoding='utf_8_sig')
     # df = pd.read_csv("D:/workspace/Python/sales_df.csv", encoding='utf-8')
