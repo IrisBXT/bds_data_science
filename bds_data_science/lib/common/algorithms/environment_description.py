@@ -2,6 +2,7 @@ import pandas as pd
 
 from lib.connectors.sql_server import SQLServerUnit
 
+
 class EnviDes:
     def __init__(self, sql_unit: SQLServerUnit, brand_name: str, year_month: list, cities: list, envi_range: float):
         self.sql_unit = sql_unit
@@ -43,7 +44,6 @@ class EnviDes:
                     cate_select: str, cate_select_s: str,
                     store_list: str, store_sales: str, cmb: str,
                     store_list_brand: str):
-        print(code_base)
         format_code = code_base.format(store_list=store_list, store_sales=store_sales,
                                        store_list_brand=store_list_brand,
                                        cate_selection=cate_select,
@@ -184,7 +184,6 @@ class EnviDes:
                                            store_sales=store_sales,
                                            store_list_brand=store_list_brand,
                                            cmb=cmb)
-            print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
         elif cates == 'wqsr':
             cate_select = "and {category}='WQSR'".format(category=self._default_col[store_list]['category'])
@@ -196,7 +195,6 @@ class EnviDes:
                                            store_sales=store_sales,
                                            store_list_brand=store_list_brand,
                                            cmb=cmb)
-            print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
         elif cates == 'total':
             store_list = '[Yum].[dbo].[TotDeliveryRestaurantList]'
@@ -207,7 +205,6 @@ class EnviDes:
                                            cate_select_s='',
                                            store_list_brand=store_list_brand,
                                            store_sales=store_sales, cmb=cmb)
-            print(format_code)
             envi_sales_df = self.sql_unit.get_df_from_db(format_code)
         else:
             print('ERROR: Wrong type of category!')
@@ -240,14 +237,50 @@ class EnviDes:
         pass
 
 
-if __name__ == '__main__':
-    sql_unit = SQLServerUnit(host='211.152.47.66', port='1433', username='iris.bao', password='irisbaoNIAN93',
-                             db='MCD')
+def bk_operation(sql_unit: SQLServerUnit, start_date: str, end_date: str):
+    bk_sales = sql_unit.get_df_from_db(r"""
+      with temp as(
+      select storename,upper(平台) as channel,CONVERT(varchar(7),日期,120)  as year_month
+      ,sum(营业额-商家补贴) as sales
+      ,row_number() over(partition by storename,upper(平台) order by CONVERT(varchar(7),日期,120)) as rn
+       from [BurgerKing].[Internal].[StoreOperationSummaryCollection]
+      where 城市='上海'
+      and 日期 between '2020-04-01' and '2020-05-31'
+      and 有效订单数>0
+      group by storename,upper(平台),CONVERT(varchar(7),日期,120)
+      )
+      select tt1.storename as store_name,tt1.channel,tt1.exposure,tt1.orders,tt1.ta
+      ,tt2.sales,tt2.gr as growth_rate
+      from(
+      select storename,upper(平台) as channel,sum(曝光人数) as exposure
+      ,sum(有效订单数) as orders,sum(营业额-商家补贴)/sum(有效订单数) as ta
+      from [BurgerKing].[Internal].[StoreOperationSummaryCollection]
+      where 城市='上海'
+      and 日期 between '{start_date}' and '{end_date}'
+      and 有效订单数>0
+      group by storename,upper(平台))tt1 left outer join
+      (
+      select t1.storename,t1.channel,t2.sales,t2.sales/t1.sales-1 as gr
+      from temp t1 left outer join
+      temp t2 on t1.storename=t2.storename and t1.channel=t2.channel and t1.rn=t2.rn-1
+      where t1.rn=1) tt2 on tt1.storename=tt2.storename and tt1.channel=tt2.channel
+        """.format(start_date=start_date, end_date=end_date))
+    return bk_sales
+
+
+def test(sql_unit: SQLServerUnit):
     envi = EnviDes(sql_unit=sql_unit, brand_name='汉堡王', year_month=['202004'], cities=['上海'], envi_range=3)
-    df = envi.sales_des(cates='wqsr', if_avg=False)
-    # df = envi.sales_des(cates='keybrand',brands=['麦当劳', '肯德基'], if_avg=False)
-    print(df)
-    df.to_csv("D:/workspace/Python/sales_df.csv", index=False, encoding='utf_8_sig')
-    # df = pd.read_csv("D:/workspace/Python/sales_df.csv", encoding='utf-8')
-    # df.to_csv("D:/workspace/Python/sales_df.csv", index=False, encoding='utf_8_sig')
+    df_wqsr = envi.sales_des(cates='wqsr', if_avg=False)
+    df_tt = envi.sales_des(cates='total', if_avg=False)
+    bk_df = bk_operation(sql_unit=sql_unit, start_date='2020-05-01', end_date='2020-05-31')
+    df = pd.merge(bk_df, df_wqsr, on=['store_name', 'channel'], how='left')
+    df = pd.merge(df, df_tt, on=['store_name', 'channel'], how='left')
+    df.to_csv("D:/workspace/Python/sales_df_tt.csv", index=False, encoding='utf_8_sig')
+    df = envi.sales_des(cates='keybrand', brands=['麦当劳', '肯德基'], if_avg=False)
+    df.to_csv("D:/workspace/Python/sales_df_keywqsr.csv", index=False, encoding='utf_8_sig')
+
+
+if __name__ == '__main__':
+    sql_unit = SQLServerUnit(host='211.152.47.66', port='1433', username='iris.bao', password='irisbaoNIAN93', db='MCD')
+    test(sql_unit)
     sql_unit.release()
